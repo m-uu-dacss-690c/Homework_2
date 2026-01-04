@@ -1,327 +1,118 @@
-<center><img src="https://github.com/DACSS-CSSmeths/guidelines/blob/main/pics/small_logo_ccs_meths.jpg?raw=true" width="700"/></center>
+---
+title: "Homework 2: Networks"
+output: html_document
+date: "2026-01-03"
+author: Marcus Widitor
+---
 
-# Social Networks in R
+## 1. Re read the graph from GitHub (cloud)
 
-------------------------------------------------------------------------
-
-
-These data frames have been previously prepared, based on the data from [50 influential people in Seattle tech to follow on Twitter](https://www.builtinseattle.com/2018/08/06/50-seattle-tech-twitter-accounts-to-follow). The file can be seen [here](https://docs.google.com/spreadsheets/d/e/2PACX-1vTpWvtfphnO9eRYwmEyxVAxxo1KEsdpK6sK6q5uhJn5x2QtB-eGiso8ibpF16NaHAers4wDIHkvBo64/pubhtml), and includes 3 sheets:
-
--   Network as two columns representing edges.
--   Network as adjacency matrix.
--   Attributes of the Network nodes.
-
-
-## I. Getting Ready:
-
-* Libraries needed
-
-```{r}
-librariesNeeded=c("igraph","ggplot2","ggraph")
-librariesNeeded %in% rownames(installed.packages())
-```
-* Set seed
-
-```{r}
-set.seed(123)
-```
-
-
-
-### II. Network Creation from dataframes
-
-
-```{r}
-rm(list = ls())
-##
-fileLink='https://github.com/DACSS-CSSmeths-winter/networkData/raw/main/seattleTop.xlsx'
-
-edges=rio::import(fileLink, which = 'edges') 
-adjacency=rio::import(fileLink, which = 'adjacency')
-attributes=rio::import(fileLink,which ="attributes")
-```
-
-Use the previous dataframes to create the network:
-
--   From the edges:
-
-```{r}
-library(igraph) # package needed
-
-EliteNet=graph_from_data_frame(edges, directed = F)
-
-summary(EliteNet)
-```
-
--   From adjacency matrix:
-
-```{r}
-#prepare matrix
-row.names(adjacency)=adjacency[,1] #first column for index
-adjacency=adjacency[,-1] # deleting the first column
-adjacencyMatrix=as.matrix(adjacency) 
-
-# the making...
-EliteNet=graph_from_adjacency_matrix(adjacencyMatrix,mode="undirected")
-
-
-summary(EliteNet)
-```
-
-See inside:
-
-```{r}
-V(EliteNet)
-```
-
-```{r}
-E(EliteNet)
-```
-
-### 2. Adding Attributes
-
-Attributes are added using **vectors**:
-
-```{r}
-# edges
-E(EliteNet)$weight=1
-# EliteNet=set_edge_attr(EliteNet,"weight", value = 1)
-
-#nodes
-V(EliteNet)$male=attributes$male
-V(EliteNet)$followers=attributes$followers
-# EliteNet=set_vertex_attr(EliteNet, "followers", value=attributes$followers)
-```
-
-```{r}
-##
-# E(EliteNet)$weight
-# edge_attr_names(EliteNet)
-# V(EliteNet)$followers
-# vertex_attr_names(EliteNet)
-summary(EliteNet)
-```
-
-You can use attributes to color nodes:
-
-```{r}
+```{r setup, warning=FALSE, message=FALSE}
+library(igraph)
 library(ggraph)
-
-base=ggraph(graph = EliteNet)
-base + geom_node_label(aes(label = name,
-                           color=as.factor(male)),
-                       repel = TRUE,show.legend = F) + 
-       geom_edge_link(alpha=0.1) + 
-       scale_color_manual(values = c('red','blue'))
-  
+library(tidyverse)
+library(ggrepel) #to avoid overlapping text labels in graphs
+set.seed(1111)
+actors=read_graph("https://raw.githubusercontent.com/m-uu-dacss-690c/Homework_2/refs/heads/main/hollywood.graphml",format='graphml')
 ```
 
-## III. Exploring the Network
-
-Let's some key measures that describe the whole network:
-
--   Connectedness:
-
-```{r}
-is_connected(EliteNet)
+```{r view-graph}
+ggraph(graph = actors) +
+  geom_edge_link(
+    aes(label = weight), # Use weight for both label and width
+    alpha = 0.5,
+    label_size = 2.5,
+    angle_calc = 'along' # Optional: Draws the label along the edge line
+  ) +
+  geom_node_text(
+    aes(label = name, color = as.factor(wonOscar)),
+    repel = TRUE
+  ) +
+  scale_color_manual(values = c('red', 'blue')) +
+  theme_graph()
 ```
 
--   Density: 
+## 2. Compute node central measures: eigen_centrality, closeness, betweenness.
 
-```{r}
-graph.density(EliteNet)
+```{r central-measures-computation}
+central_measures <- tibble(
+  name = V(actors)$name,
+  eigen_centrality = eigen_centrality(actors)$vector, 
+  closeness = closeness(actors, normalized = TRUE),
+  betweenness = betweenness(actors, normalized = TRUE)
+)
+central_measures
 ```
 
--   Diameter: 
+## 3. Prepare a correlation plot with previous measures, and comment the result.
 
-```{r}
-diameter(EliteNet)
+```{r central-measure-graph}
+graph <- ggplot(central_measures, 
+                aes(x=betweenness, y=closeness, size=eigen_centrality, label = name)) + 
+  geom_point() +
+  geom_text_repel() +
+  scale_y_continuous(limits = c(0, NA)) +
+  labs(title = "Actor Network Measures of Centrality")
+graph
+
 ```
 
--   Assortativity: 
-  a.   Degree assortativity: 
+Betweenness and closeness seem to be positively correlated, but eigen centrality doesn't appear to have a relationship with the other central measures. Despite having the lowest closeness and betweenness values, Al Pacino and Robert DeNiro both have large values of eigen centrality.
 
-```{r}
-assortativity_degree(EliteNet,directed=F)
-```
+## 4. Is it possible communities are present? Support your answer with computations.
 
-
-  b. Categorical assortativity: 
-
-
-```{r}
-assortativity_nominal(EliteNet,as.factor(V(EliteNet)$male),directed = F)
-```
-
-       
-  c. Assortativity (numerical): 
-
-
-```{r}
-assortativity(EliteNet,V(EliteNet)$followers,directed = T)
-```
-
-## IV. Exploration of Network nodes
-
-Let's compute measures for each node, and save them into a data frame:
-
-
-```{r}
-
-eigen=eigen_centrality (EliteNet)$vector
-
-close=closeness(EliteNet,normalized=T)
-
-betw=betweenness(EliteNet,normalized=T)
-
-DFCentrality=as.data.frame(cbind(eigen,close,betw),stringsAsFactors = F)
-names(DFCentrality)=c('Eigenvector','Closeness','Betweenness')
-
-DFCentrality$person=row.names(DFCentrality)
-row.names(DFCentrality)=NULL
-
-## see
-head(DFCentrality)
-```
-
-```{r}
-library(ggplot2)
-ggplot(DFCentrality, aes(x=Betweenness, y=Closeness)) + 
-    theme_classic() +
-    geom_text(aes(label=person,size=Eigenvector),show.legend = T,alpha=0.5) 
-```
-
-The previous results tells us that two people are salient:
-
-```{r}
-HubNodes=dplyr::top_n(DFCentrality,2,Eigenvector)$person
-HubNodes
-```
-
-Let's highlight those guys:
-
-```{r, fig.height=10}
-NodeCount=length(V(EliteNet))
-
-V(EliteNet)$label=''
-
-for (index in seq(1:NodeCount)){
-    currentName=V(EliteNet)$name[index]
-    if (currentName%in%HubNodes){
-            V(EliteNet)$label[index]=currentName
-    }
+```{r communities}
+# function to output a single transitivity rate based on a randomly generated network
+transitivity_rate <- function(a){
+  random_graph = sample_gnp(length(V(a)),p=edge_density(a))
+  tr = transitivity(a)/transitivity(random_graph)
+  if (is.finite(tr)) {
+    tr
+  }
+  else
+    NA
 }
+# average thousands of calculated rates
+transitivity_rates <- map_dbl((1:3001), ~ transitivity_rate(actors)) |>
+  enframe(name = NULL, value = "transitivity_rate") 
+transitivity_rates |>
+  summarize("mean transitivity rate" = mean(transitivity_rate, na.rm = TRUE))
+```
+
+With transitivity being how likely two nodes with a common connection are connected, since the average transitivity rate is above one (around 1.13), then it is possible communities are present.
+
+## 5. IF the presence of communities is possible, compute the communities using Girvan-Newman and Louvain algorithms. Plot the best result.
+
+```{r}
+# Girvan-Newman communities
+
+# Membership vector will be selected based on the highest modularity score
+partition_girvanNewman_best <- cluster_edge_betweenness(actors)
+# add community column 
+V(actors)$girvanNewman_community=as.factor(membership(partition_girvanNewman_best))
+
+girvan_newman_graph <- ggraph(graph = actors,layout = 'fr') +
+  geom_edge_link(alpha=0.2) +
+  geom_node_point(aes(color=girvanNewman_community), show.legend = TRUE, size=4) +
+  geom_node_text(aes(label = name), repel = TRUE) +
+  labs(title = "Girvan-Newman Communities in Actor Network")
+girvan_newman_graph
 
 ```
 
 ```{r}
-library(ggraph)
+# Louvain communities
 
-base=ggraph(graph = EliteNet)
-base  + geom_node_label(aes(label = label), 
-                        repel = TRUE,
-                        show.legend = F,
-                        color='red') + 
-         geom_edge_link(alpha=0.1)
-```
+# Membership vector will be selected based on the highest modularity score
+partition_louvain_optimal <- cluster_louvain(actors)
+# add community column
+V(actors)$louvain_community=as.factor(membership(partition_louvain_optimal))
 
-## 5. Communities
+louvain_graph <- ggraph(graph = actors,layout = 'fr') +
+  geom_edge_link(alpha=0.2) +
+  geom_node_point(aes(color=louvain_community), show.legend = TRUE, size=4) +
+  geom_node_text(aes(label = name), repel = TRUE) +
+  labs(title = "Louvain Communities in Actor Network")
+louvain_graph
 
-### 5.1 **Potential Communities?**
-
-a. Computing a random network:
-
-```{r}
-RandomNet <- sample_gnp(length(V(EliteNet)),p=edge_density(EliteNet))
-```
-
-b. Get Transitivity rate
-
-```{r}
-transitivity(EliteNet)/transitivity(RandomNet)
-```
-
-### 5.2 **Two approaches**
-
-a. Girvan-Newman:
-
-
-The **girvan_newman** algorithm is based on creating partitions using the centrality of nodes to create partition too. We can create something similar to the last result like this:
-
-
-```{r}
-# Membership vector will be selected based 
-# on the highest modularity score
-partition_girvanNewman_best <- cluster_edge_betweenness(EliteNet)
-```
-
-The best partition was
-```{r}
-table(membership(partition_girvanNewman_best))
-```
-The modularity:
-```{r}
-max(partition_girvanNewman_best$modularity)
-```
-
-b. Louvain:
-
-
-```{r}
-partition_louvain_optimal <- cluster_louvain(EliteNet)
-```
-
-The optimal partition is:
-```{r}
-table(membership(partition_louvain_optimal))
-```
-The modularity:
-```{r}
-max(partition_louvain_optimal$modularity)
-```
-
-### 5.3 **Plotting communities**
-
-First, creating new columns:
-
-```{r}
-V(EliteNet)$louvain=as.factor(membership(partition_louvain_optimal))
-V(EliteNet)$girvanNewman=as.factor(membership(partition_girvanNewman_best))
-```
-
-Now plot the one with the bet modularity:
-
-```{r}
-base=ggraph(graph =EliteNet,layout = 'fr') + geom_edge_link(alpha=0.2)
-base + geom_node_point(aes(color=louvain), show.legend = T, size=4)
-```
-
-An alternative:
-
-```{r}
-V(EliteNet)$degree = degree(EliteNet)
-
-ggraph(EliteNet, layout = 'hive', 
-       axis = louvain,
-       sort.by = degree
-       ) +   
-  geom_edge_hive(color='grey80') +   
-  geom_axis_hive(aes(colour = louvain), 
-                 label = F) + 
-  geom_node_point(aes(colour = louvain)) +
-  geom_node_text(aes(label = name), 
-                 repel = TRUE, 
-                 max.overlaps = 50, # avoid overlap
-                 size = 2.5) +
-  coord_fixed()
-```
-
-Time to export:
-
-```{r, eval=TRUE}
-# you need numeric here:
-V(EliteNet)$louvain=as.numeric(V(EliteNet)$louvain)
-V(EliteNet)$girvanNewman=as.numeric(V(EliteNet)$girvanNewman)
-# so this works
-write_graph(EliteNet, "EliteNet_R.graphml", "graphml")
 ```
